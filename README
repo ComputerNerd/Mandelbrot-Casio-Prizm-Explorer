@@ -1,0 +1,21 @@
+The Mandelbrot fractal is quite a sight.
+Such wonder and amazement that can be found while viewing the Mandelbrot fractal can now be had on the Casio Prizm graphing calculator.
+In addition this program can also be compiled for the PC assuming SDL is installed.
+Just run make and it will be up and running.
+There is very little difference in function between the PC version and the casio prizm version, the resolution is higher but that is it.
+
+The controls are
+Left, right, up, down moves the window in that direction
+Menu key or ESC on the PC, exits to the menu or exits the program (PC)
+F1 sets maximum iterations to 65535
+F2 sets the maximum iterations to 224 (this is the default upon starting the program)
+F3 toggles deep mode which is on by default. This means you can zoom in deeper with a slight perforamnce hit.
+I do not notice the difference
+1 subtracts one from the maximum iterations
+2 adds one to the maximum iterations
+3 subtracts ten from the maximum iterations
+4 adds ten to the maximum iterations
+5 subtracts 100 from the maximum iterations
+6 adds 100 to the maximum iterations
+Shift zooms in
+Alpha (ALT on PC) zooms out

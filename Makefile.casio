@@ -1,0 +1,22 @@
+CC=sh3eb-elf-gcc
+OBJCOPY=sh3eb-elf-objcopy
+MKG3A=mkg3a
+RM=rm
+CFLAGS=-m4a-nofpu -mb -O3 -mhitachi -Wall -I../../include -lgcc -L../../lib -DCASIO_PRIZM -flto -fuse-linker-plugin
+LDFLAGS=$(CFLAGS) -nostartfiles -T../../toolchain/prizm.x -Wl,-static -Wl,-gc-sections
+OBJECTS=src/main.o src/input.o src/mandelbrot.o src/screen.o
+PROJ_NAME=mandelbrot
+BIN=$(PROJ_NAME).bin
+ELF=$(PROJ_NAME).elf
+ADDIN=$(PROJ_NAME).g3a
+all: $(ADDIN)
+ $(ADDIN): $(BIN)
+	$(MKG3A) -n :mandelbrot -i uns:unselected.png -i sel:selected.png $< $@
+.c.o:
+	$(CC) -c $(CFLAGS) $< -o $@
+$(ELF): $(OBJECTS)
+	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
+$(BIN): $(ELF)
+	$(OBJCOPY) -O binary $(PROJ_NAME).elf $(BIN)
+clean:
+	$(RM) -f $(OBJECTS) $(PROJ_NAME).bin $(PROJ_NAME).elf $(ADDIN)
