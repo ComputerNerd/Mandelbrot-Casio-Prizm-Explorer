@@ -15,9 +15,6 @@
 	along with Mandelbrot Explorer.  If not, see <http://www.gnu.org/licenses/>.
 	Copyright 2014 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
 */
-void waitKey(void);
-int keyPressed(int basic_keycode);
-int checkExit(void);
 #ifdef CASIO_PRIZM
 	#include <fxcg/keyboard.h>
 	#define KEY_UP KEY_PRGM_UP

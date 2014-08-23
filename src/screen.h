@@ -17,11 +17,7 @@
 */
 #ifdef PC
 #include <SDL/SDL.h>
-extern SDL_Surface *screen;
 #endif
-void clearScreen(void);
-void toScrTop(unsigned w,unsigned h,uint16_t * c);
-void fillRectScr(unsigned x,unsigned y,uint16_t col,unsigned wr,unsigned hr);
 #ifdef PC
 #define FlipScreen() SDL_Flip(screen);
 #define VRAM_ADDRESS screen->pixels

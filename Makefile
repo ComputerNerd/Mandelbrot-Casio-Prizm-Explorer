@@ -1,6 +1,5 @@
 CFLAGS=-Wall -Wextra -Isrc -O3 -flto -DPC -fmerge-all-constants -fsingle-precision-constant -s -Wl,--gc-sections -pipe
-objects = src/main.o src/screen.o src/input.o src/mandelbrot.o
-
+objects = src/main.o
 mandelbort: $(objects)
 	cc -Wall -o mandelbrot -lSDL -lm $(CFLAGS) $(objects)
 

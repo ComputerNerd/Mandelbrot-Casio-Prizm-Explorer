@@ -18,9 +18,333 @@
 #include <stdint.h>
 #include <string.h>
 #include "config.h"
-#include "mandelbrot.h"
+//#include "mandelbrot.h"
 #include "screen.h"
 #include "input.h"
+#include "config.h"
+void waitKey(void){
+	#ifdef PC
+		SDL_Event keyevent;
+		do{
+			SDL_WaitEvent(&keyevent);
+		}while(keyevent.type != SDL_KEYDOWN);
+		do{
+			SDL_WaitEvent(&keyevent);
+		}while(keyevent.type != SDL_KEYUP);
+	#endif
+	#ifdef CASIO_PRIZM
+		int key;
+		GetKey(&key);
+	#endif
+}
+int keyPressed(int basic_keycode){
+	#ifdef PC
+		uint8_t*keystate=SDL_GetKeyState(NULL);
+		return keystate[basic_keycode];
+	#endif
+	#ifdef CASIO_PRIZM
+		const unsigned short* keyboard_register = (unsigned short*)0xA44B0000;
+		int row, col, word, bit;
+		row = basic_keycode%10;
+		col = basic_keycode/10-1;
+		word = row>>1;
+		bit = col + ((row&1)<<3);
+		return (0 != (keyboard_register[word] & 1<<bit));
+	#endif
+}
+int checkExit(void){
+	#ifdef CASIO_PRIZM
+		return keyPressed(KEY_PRGM_MENU);
+	#endif
+	#ifdef PC
+		SDL_Event event;
+		while(SDL_PollEvent(&event)){
+			if(event.type==SDL_QUIT)
+				return 1;
+		}
+		return 0;
+	#endif
+}
+#ifdef PC
+SDL_Surface *screen;
+#endif
+#ifdef CASIO_PRIZM
+#define LCD_GRAM 0x202
+#define LCD_BASE	0xB4000000
+#define VRAM_ADDR 0xA8000000
+#define SYNCO() __asm__ volatile("SYNCO\n\t":::"memory");
+// Module Stop Register 0
+#define MSTPCR0	(volatile unsigned *)0xA4150030
+// DMA0 operation register
+#define DMA0_DMAOR	(volatile unsigned short*)0xFE008060
+#define DMA0_SAR_0	(volatile unsigned *)0xFE008020
+#define DMA0_DAR_0  (volatile unsigned *)0xFE008024
+#define DMA0_TCR_0	(volatile unsigned *)0xFE008028
+#define DMA0_CHCR_0	(volatile unsigned *)0xFE00802C
+void DmaWaitNext(void){
+	while(1){
+		if((*DMA0_DMAOR)&4)//Address error has occured stop looping
+			break;
+		if((*DMA0_CHCR_0)&2)//Transfer is done
+			break;
+	}
+	SYNCO();
+	*DMA0_CHCR_0&=~1;
+	*DMA0_DMAOR=0;
+}
+void FlipScreen(void){
+	Bdisp_WriteDDRegister3_bit7(1);
+	Bdisp_DefineDMARange(6,389,0,215);
+	Bdisp_DDRegisterSelect(LCD_GRAM);
+
+	*MSTPCR0&=~(1<<21);//Clear bit 21
+	*DMA0_CHCR_0&=~1;//Disable DMA on channel 0
+	*DMA0_DMAOR=0;//Disable all DMA
+	*DMA0_SAR_0=VRAM_ADDR&0x1FFFFFFF;//Source address is VRAM
+	*DMA0_DAR_0=LCD_BASE&0x1FFFFFFF;//Desination is LCD
+	*DMA0_TCR_0=(216*384)/16;//Transfer count bytes/32
+	*DMA0_CHCR_0=0x00101400;
+	*DMA0_DMAOR|=1;//Enable DMA on all channels
+	*DMA0_DMAOR&=~6;//Clear flags
+	*DMA0_CHCR_0|=1;//Enable channel0 DMA
+}
+#endif
+void clearScreen(void){
+	#ifdef CASIO_PRIZM
+		memset((void *)0xA8000000,0,384*216*2);
+	#endif
+	#ifdef PC
+		if(SDL_MUSTLOCK(screen)) SDL_LockSurface(screen);
+		memset(screen->pixels,0,screen->w*screen->h*2);
+		if(SDL_MUSTLOCK(screen)) SDL_UnlockSurface(screen);
+	#endif
+}
+static int64_t stepX;
+static int64_t stepY;
+static int64_t divX;
+static int64_t divY;
+typedef int fixed_t;
+#define preMan 13
+#define deepMan 26
+#define deepManInt (32-deepMan)
+#define difShift (deepMan-preMan)
+#define wBits 48
+#define WDifpre (wBits-preMan)
+#define WDifdeep (wBits-deepMan)
+static inline fixed_t absf(fixed_t x){return x>0?x:-x;}
+static inline fixed_t square(fixed_t x){return (x*x)>>preMan;}
+static inline fixed_t squaredeep(fixed_t x){return (fixed_t)(((int64_t)x*(int64_t)x)>>deepMan);}
+static uint16_t colorTab[65536];
+static inline int64_t absll(int64_t x){return x>0?x:-x;}
+static void calcColorTab(uint16_t maxit){
+	uint_fast32_t it;
+	for(it=0;it<=maxit;++it)
+		colorTab[it]=it*0xFFFF/maxit;
+}
+static uint16_t ManItDeep(fixed_t c_r,fixed_t c_i,uint16_t maxit){//manIt stands for mandelbrot iteration what did you think it stood for?
+	//c_r = scaled x coordinate of pixel (must be scaled to lie somewhere in the mandelbrot X scale (-2.5, 1)
+	//c_i = scaled y coordinate of pixel (must be scaled to lie somewhere in the mandelbrot Y scale (-1, 1)
+	// squre optimaztion code below orgionally from http://randomascii.wordpress.com/2011/08/13/faster-fractals-through-algebra/
+	//early bailout code from http://locklessinc.com/articles/mandelbrot/
+	//changed by me to use fixed point math
+	fixed_t ckr,cki;
+	unsigned p=0,ptot=8;
+	fixed_t z_r = c_r;
+	fixed_t z_i = c_i;
+	fixed_t zrsqr = squaredeep(z_r);
+	fixed_t zisqr = squaredeep(z_i);
+	fixed_t q=squaredeep(c_r-((1<<deepMan)/4))+squaredeep(c_i);
+	if((((int64_t)q*((int64_t)q+((int64_t)c_r-((1<<deepMan)/4))))>>deepMan) < (squaredeep(c_i)/4))
+		return 0;
+	//int zrsqr,zisqr;
+	do{
+		ckr = z_r;
+		cki = z_i;
+		ptot += ptot;
+		if(ptot > maxit) ptot = maxit;
+		for(; p < ptot;++p){
+			z_i =(squaredeep(z_r+z_i))-zrsqr-zisqr;
+			z_i += c_i;
+			z_r = zrsqr-zisqr+c_r;
+			zrsqr = squaredeep(z_r);
+			zisqr = squaredeep(z_i);
+			if((zrsqr + zisqr) > (4<<deepMan))
+				return colorTab[p];
+			if((z_r == ckr) && (z_i == cki))
+				return 0;
+		}
+	} while (ptot != maxit);
+	//return (uint32_t)p*(uint32_t)0xFFFF/(uint32_t)maxit;
+	return 0;
+}
+static uint16_t ManIt(fixed_t c_r,fixed_t c_i,uint16_t maxit){
+	//same credits as above
+	fixed_t ckr,cki;
+	unsigned p=0,ptot=8;
+	fixed_t z_r = c_r;
+	fixed_t z_i = c_i;
+	fixed_t zrsqr = (z_r * z_r)>>preMan;
+	fixed_t zisqr = (z_i * z_i)>>preMan;
+	fixed_t q=square(c_r-((1<<preMan)/4))+square(c_i);
+	if(((q*(q+(c_r-((1<<preMan)/4))))>>preMan) < (square(c_i)/4))
+		return 0;
+	do{
+		ckr = z_r;
+		cki = z_i;
+		ptot += ptot;
+		if(ptot > maxit) ptot = maxit;
+		for(; p < ptot;++p){
+			z_i =(square(z_r+z_i))-zrsqr-zisqr;
+			z_i += c_i;
+			z_r = zrsqr-zisqr+c_r;
+			zrsqr = square(z_r);
+			zisqr = square(z_i);
+			if((zrsqr + zisqr) > (4<<preMan))
+				return colorTab[p];
+			if((z_r == ckr) && (z_i == cki))
+				return 0;
+		}
+	} while (ptot != maxit);
+	return 0;
+}
+static void mandel(uint16_t*dst,unsigned w,unsigned h,int deep,uint16_t maxit,int64_t minX,int64_t maxX,uint16_t poffX,int64_t minY,int64_t maxY,uint16_t poffY){
+	int64_t x,y;
+	unsigned xx,yy=poffY;
+	dst+=(poffY*w);
+	if(deep){
+		for(y=minY;y<maxY;y+=stepY){
+			dst+=poffX;
+			xx=poffX;
+			if(yy>=h)
+				return;
+			for(x=minX;x<maxX;x+=stepX){
+				if(xx>=w)
+					break;
+				*dst++=ManItDeep((int64_t)x>>(int64_t)WDifdeep,(int64_t)y>>(int64_t)WDifdeep,maxit);
+				++xx;
+			}
+			++yy;
+			dst+=w-xx;
+		}
+	}else{
+		for(y=minY;y<maxY;y+=stepY){
+			dst+=poffX;
+			xx=poffX;
+			if(yy>=h)
+				return;
+			for(x=minX;x<maxX;x+=stepX){
+				if(xx>=w)
+					break;
+				*dst++=ManIt((int64_t)x>>(int64_t)WDifpre,(int64_t)y>>(int64_t)WDifpre,maxit);
+				++xx;
+			}
+			++yy;
+			dst+=w-xx;
+		}
+	}
+}
+static void mandelMask(uint16_t*dst,unsigned w,unsigned h,int deep,uint16_t maxit,int64_t minX,int64_t maxX,uint16_t poffX,int64_t minY,int64_t maxY,uint16_t poffY,unsigned skipX,unsigned skipY,unsigned mask){
+	int64_t x,y;
+	unsigned xx,yy=poffY;
+	dst+=(poffY*w);
+	if(deep){
+		for(y=minY;y<maxY;y+=stepY){
+			dst+=poffX;
+			xx=poffX;
+			if(yy>=h)
+				return;
+			if((yy&mask)==skipY){
+				for(x=minX;x<maxX;x+=stepX){
+					if(xx>=w)
+						break;
+					if((xx&mask)==skipX)
+						*dst++=ManItDeep((int64_t)x>>(int64_t)WDifdeep,(int64_t)y>>(int64_t)WDifdeep,maxit);
+					else
+						++dst;
+					++xx;
+				}
+			}
+			++yy;
+			dst+=w-xx;
+		}
+	}else{
+		for(y=minY;y<maxY;y+=stepY){
+			dst+=poffX;
+			xx=poffX;
+			if(yy>=h)
+				return;
+			if((yy&mask)==skipY){
+				for(x=minX;x<maxX;x+=stepX){
+					if(xx>=w)
+						break;
+					if((xx&mask)==skipX)
+						*dst++=ManIt((int64_t)x>>(int64_t)WDifpre,(int64_t)y>>(int64_t)WDifpre,maxit);
+					else
+						++dst;
+					++xx;
+				}
+			}
+			++yy;
+			dst+=w-xx;
+		}
+	}
+}
+static void mandelQuater(uint16_t*dst,unsigned w,unsigned h,int deep,uint16_t maxit,int64_t minX,int64_t maxX,uint16_t poffX,int64_t minY,int64_t maxY,uint16_t poffY){
+	int64_t x,y;
+	unsigned xx,yy=poffY;
+	dst+=(poffY*w);
+	if(deep){
+		for(y=minY;y<maxY;y+=stepY*4){
+			dst+=poffX;
+			xx=poffX;
+			if(yy>=h)
+				return;
+			for(x=minX;x<maxX;x+=stepX*4){
+				if(xx>=w)
+					break;
+				uint16_t val=ManItDeep((int64_t)x>>(int64_t)WDifdeep,(int64_t)y>>(int64_t)WDifdeep,maxit);
+				*dst++=val;
+				*dst++=val;
+				*dst++=val;
+				*dst++=val;
+				xx+=4;
+			}
+			dst+=w-xx;
+			memcpy(dst,dst-w,w*2);
+			dst+=w;
+			memcpy(dst,dst-w,w*2);
+			dst+=w;
+			memcpy(dst,dst-w,w*2);
+			dst+=w;
+			yy+=4;
+		}
+	}else{
+		for(y=minY;y<maxY;y+=stepY*4){
+			dst+=poffX;
+			xx=poffX;
+			if(yy>=h)
+				return;
+			for(x=minX;x<maxX;x+=stepX*4){
+				if(xx>=w)
+					break;
+				uint16_t val=ManIt((int64_t)x>>(int64_t)WDifpre,(int64_t)y>>(int64_t)WDifpre,maxit);
+				*dst++=val;
+				*dst++=val;
+				*dst++=val;
+				*dst++=val;
+				xx+=4;
+			}
+			dst+=w-xx;
+			memcpy(dst,dst-w,w*2);
+			dst+=w;
+			memcpy(dst,dst-w,w*2);
+			dst+=w;
+			memcpy(dst,dst-w,w*2);
+			dst+=w;
+			yy+=4;
+		}
+	}
+}
 static inline void mandelFull(int64_t* scale,uint16_t z,int deep){
 	#ifdef PC
 		if(SDL_MUSTLOCK(screen)) SDL_LockSurface(screen);
