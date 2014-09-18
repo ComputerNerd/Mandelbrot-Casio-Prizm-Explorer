@@ -6,7 +6,7 @@
 	the Free Software Foundation, either version 3 of the License, or
 	(at your option) any later version.
 
-	Foobar is distributed in the hope that it will be useful,
+	Mandelbrot Explorer is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
@@ -18,7 +18,6 @@
 #include <stdint.h>
 #include <string.h>
 #include "config.h"
-//#include "mandelbrot.h"
 #include "screen.h"
 #include "input.h"
 #include "config.h"
@@ -83,7 +82,7 @@ SDL_Surface *screen;
 #define DMA0_CHCR_0	(volatile unsigned *)0xFE00802C
 void DmaWaitNext(void){
 	while(1){
-		if((*DMA0_DMAOR)&4)//Address error has occured stop looping
+		if((*DMA0_DMAOR)&4)//Address error has occurred stop looping
 			break;
 		if((*DMA0_CHCR_0)&2)//Transfer is done
 			break;
@@ -101,7 +100,7 @@ void FlipScreen(void){
 	*DMA0_CHCR_0&=~1;//Disable DMA on channel 0
 	*DMA0_DMAOR=0;//Disable all DMA
 	*DMA0_SAR_0=VRAM_ADDR&0x1FFFFFFF;//Source address is VRAM
-	*DMA0_DAR_0=LCD_BASE&0x1FFFFFFF;//Desination is LCD
+	*DMA0_DAR_0=LCD_BASE&0x1FFFFFFF;//Destination is LCD
 	*DMA0_TCR_0=(216*384)/16;//Transfer count bytes/32
 	*DMA0_CHCR_0=0x00101400;
 	*DMA0_DMAOR|=1;//Enable DMA on all channels
@@ -144,7 +143,7 @@ static void calcColorTab(uint16_t maxit){
 static uint16_t ManItDeep(fixed_t c_r,fixed_t c_i,uint16_t maxit){//manIt stands for mandelbrot iteration what did you think it stood for?
 	//c_r = scaled x coordinate of pixel (must be scaled to lie somewhere in the mandelbrot X scale (-2.5, 1)
 	//c_i = scaled y coordinate of pixel (must be scaled to lie somewhere in the mandelbrot Y scale (-1, 1)
-	// squre optimaztion code below orgionally from http://randomascii.wordpress.com/2011/08/13/faster-fractals-through-algebra/
+	// squre optimization code below originally from http://randomascii.wordpress.com/2011/08/13/faster-fractals-through-algebra/
 	//early bailout code from http://locklessinc.com/articles/mandelbrot/
 	//changed by me to use fixed point math
 	fixed_t ckr,cki;
@@ -310,11 +309,11 @@ static void mandelQuater(uint16_t*dst,unsigned w,unsigned h,int deep,uint16_t ma
 				xx+=4;
 			}
 			dst+=w-xx;
-			memcpy(dst,dst-w,w*2);
+			__builtin_memcpy(dst,dst-w,w*2);
 			dst+=w;
-			memcpy(dst,dst-w,w*2);
+			__builtin_memcpy(dst,dst-w,w*2);
 			dst+=w;
-			memcpy(dst,dst-w,w*2);
+			__builtin_memcpy(dst,dst-w,w*2);
 			dst+=w;
 			yy+=4;
 		}
@@ -335,11 +334,11 @@ static void mandelQuater(uint16_t*dst,unsigned w,unsigned h,int deep,uint16_t ma
 				xx+=4;
 			}
 			dst+=w-xx;
-			memcpy(dst,dst-w,w*2);
+			__builtin_memcpy(dst,dst-w,w*2);
 			dst+=w;
-			memcpy(dst,dst-w,w*2);
+			__builtin_memcpy(dst,dst-w,w*2);
 			dst+=w;
-			memcpy(dst,dst-w,w*2);
+			__builtin_memcpy(dst,dst-w,w*2);
 			dst+=w;
 			yy+=4;
 		}
@@ -536,7 +535,7 @@ int main(void){
 			calcColorTab(z);
 			redraw=redrawFull;
 		}
-		memcpy(scaleO,scaleN,4*sizeof(int64_t));
+		__builtin_memcpy(scaleO,scaleN,4*sizeof(int64_t));
 		if(keyPressed(KEY_SHIFT)){
 			scaleN[0]+=absll(scaleN[1]-scaleN[0])/64LL;
 			scaleN[1]-=absll(scaleN[1]-scaleN[0])/64LL;
