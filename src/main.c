@@ -13,7 +13,7 @@
 
 	You should have received a copy of the GNU General Public License
 	along with Mandelbrot Explorer.  If not, see <http://www.gnu.org/licenses/>.
-	Copyright 2014 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
+	Copyright 2017 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
 */
 #include <stdint.h>
 #include <string.h>
@@ -70,7 +70,7 @@ SDL_Surface *screen;
 #ifdef CASIO_PRIZM
 #define LCD_GRAM 0x202
 #define LCD_BASE	0xB4000000
-#define VRAM_ADDR 0xA8000000
+unsigned short* VRAM_ADDR;
 #define SYNCO() __asm__ volatile("SYNCO\n\t":::"memory");
 // Module Stop Register 0
 #define MSTPCR0	(volatile unsigned *)0xA4150030
@@ -99,7 +99,7 @@ void FlipScreen(void){
 	*MSTPCR0&=~(1<<21);//Clear bit 21
 	*DMA0_CHCR_0&=~1;//Disable DMA on channel 0
 	*DMA0_DMAOR=0;//Disable all DMA
-	*DMA0_SAR_0=VRAM_ADDR&0x1FFFFFFF;//Source address is VRAM
+	*DMA0_SAR_0=((unsigned)VRAM_ADDR)&0x1FFFFFFF;//Source address is VRAM
 	*DMA0_DAR_0=LCD_BASE&0x1FFFFFFF;//Destination is LCD
 	*DMA0_TCR_0=(216*384)/16;//Transfer count bytes/32
 	*DMA0_CHCR_0=0x00101400;
@@ -110,7 +110,7 @@ void FlipScreen(void){
 #endif
 void clearScreen(void){
 	#ifdef CASIO_PRIZM
-		memset((void *)0xA8000000,0,384*216*2);
+		memset((void *)VRAM_ADDR,0,384*216*2);
 	#endif
 	#ifdef PC
 		if(SDL_MUSTLOCK(screen)) SDL_LockSurface(screen);
@@ -140,7 +140,7 @@ static void calcColorTab(uint16_t maxit){
 	for(it=0;it<=maxit;++it)
 		colorTab[it]=it*0xFFFF/maxit;
 }
-static uint16_t ManItDeep(fixed_t c_r,fixed_t c_i,uint16_t maxit){//manIt stands for mandelbrot iteration what did you think it stood for?
+static uint16_t ManItDeep(fixed_t c_r,fixed_t c_i,unsigned maxit){//manIt stands for mandelbrot iteration what did you think it stood for?
 	//c_r = scaled x coordinate of pixel (must be scaled to lie somewhere in the mandelbrot X scale (-2.5, 1)
 	//c_i = scaled y coordinate of pixel (must be scaled to lie somewhere in the mandelbrot Y scale (-1, 1)
 	// squre optimization code below originally from http://randomascii.wordpress.com/2011/08/13/faster-fractals-through-algebra/
@@ -176,7 +176,7 @@ static uint16_t ManItDeep(fixed_t c_r,fixed_t c_i,uint16_t maxit){//manIt stands
 	//return (uint32_t)p*(uint32_t)0xFFFF/(uint32_t)maxit;
 	return 0;
 }
-static uint16_t ManIt(fixed_t c_r,fixed_t c_i,uint16_t maxit){
+static uint16_t ManIt(fixed_t c_r,fixed_t c_i,unsigned maxit){
 	//same credits as above
 	fixed_t ckr,cki;
 	unsigned p=0,ptot=8;
@@ -206,7 +206,7 @@ static uint16_t ManIt(fixed_t c_r,fixed_t c_i,uint16_t maxit){
 	} while (ptot != maxit);
 	return 0;
 }
-static void mandel(uint16_t*dst,unsigned w,unsigned h,int deep,uint16_t maxit,int64_t minX,int64_t maxX,uint16_t poffX,int64_t minY,int64_t maxY,uint16_t poffY){
+static void mandel(uint16_t*dst,unsigned w,unsigned h,int deep,unsigned maxit,int64_t minX,int64_t maxX,uint16_t poffX,int64_t minY,int64_t maxY,uint16_t poffY){
 	int64_t x,y;
 	unsigned xx,yy=poffY;
 	dst+=(poffY*w);
@@ -389,10 +389,8 @@ static int handleUDLR(int redraw,int deep,int64_t*scaleN,int64_t*scaleO,uint16_t
 			if(SDL_MUSTLOCK(screen)) SDL_LockSurface(screen);
 		#endif
 		uint16_t*vram=(uint16_t*)VRAM_ADDRESS;
-		int deltaX;
-		deltaX=(int)(((int64_t)scaleN[0]-(int64_t)scaleO[0])*(int64_t)SCREEN_WIDTH/(int64_t)divX);
-		int deltaY;
-		deltaY=(int)(((int64_t)scaleN[2]-(int64_t)scaleO[2])*(int64_t)SCREEN_HEIGHT/(int64_t)divY);
+		int deltaX=(int)(((int64_t)scaleN[0]-(int64_t)scaleO[0])*(int64_t)SCREEN_WIDTH/(int64_t)divX);
+		int deltaY=(int)(((int64_t)scaleN[2]-(int64_t)scaleO[2])*(int64_t)SCREEN_HEIGHT/(int64_t)divY);
 		if(deltaX>0){
 			//move everything left (right was pressed)
 			unsigned y;
@@ -409,9 +407,10 @@ static int handleUDLR(int redraw,int deep,int64_t*scaleN,int64_t*scaleO,uint16_t
 			unsigned y;
 			int x;
 			for(y=0;y<SCREEN_HEIGHT;++y){
-				for(x=SCREEN_WIDTH-deltaX;x>=0;--x)
-					vram[x+deltaX]=vram[x];
+				for(x=SCREEN_WIDTH-1;x>=deltaX;--x)
+					vram[x]=vram[x-deltaX];
 				vram+=SCREEN_WIDTH;
+
 			}
 			mandel((uint16_t*)VRAM_ADDRESS,SCREEN_WIDTH,SCREEN_HEIGHT,deep,z,scaleN[0],scaleN[0]-(scaleN[0]-scaleO[0]),0,scaleO[2],scaleO[3],0);
 		}
@@ -438,8 +437,8 @@ static int handleUDLR(int redraw,int deep,int64_t*scaleN,int64_t*scaleO,uint16_t
 static void setScale(int64_t * scale,int64_t w,int64_t h){//format minx maxx miny maxy
 	divXX=divX;
 	divYY=divY;
-	divX=absll(scale[0]-scale[1]);
-	divY=absll(scale[2]-scale[3]);
+	divX=scale[1]-scale[0];
+	divY=scale[3]-scale[2];
 	stepX=divX/(int64_t)w;
 	stepY=divY/(int64_t)h;
 	if(!stepX)
@@ -451,6 +450,7 @@ int main(void){
 	int64_t scaleN[4] = {(int64_t)-2<<wBits,(int64_t)1<<wBits,(int64_t)-1<<wBits,(int64_t)1<<wBits};
 	int64_t scaleO[4] = {(int64_t)-2<<wBits,(int64_t)1<<wBits,(int64_t)-1<<wBits,(int64_t)1<<wBits};
 	#ifdef CASIO_PRIZM
+		VRAM_ADDR = (unsigned short*)GetVRAMAddress();
 		Bdisp_EnableColor(1);
 		clearScreen();
 		Bdisp_PutDisp_DD();
@@ -553,27 +553,31 @@ int main(void){
 			redraw|=redrawS;
 		}
 		if(keyPressed(KEY_UP)){
-			scaleN[2]-=absll(scaleN[3]-scaleN[2])/64LL;
-			scaleN[3]-=absll(scaleN[3]-scaleN[2])/64LL;
+			int64_t moveY=divY/64;
+			scaleN[2]-=moveY;
+			scaleN[3]-=moveY;
 			setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
 			redraw|=redrawUD;
 		}
 		if(keyPressed(KEY_DOWN)){
-			scaleN[2]+=(int64_t)absll(scaleN[3]-scaleN[2])/64LL;
-			scaleN[3]+=(int64_t)absll(scaleN[3]-scaleN[2])/64LL;
+			int64_t moveY=divY/64;
+			scaleN[2]+=moveY;
+			scaleN[3]+=moveY;
 			setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
 			redraw|=redrawUD;
 		}
 		if(keyPressed(KEY_LEFT)){
-			scaleN[0]-=(int64_t)absll(scaleN[1]-scaleN[0])/64LL;
-			scaleN[1]-=(int64_t)absll(scaleN[1]-scaleN[0])/64LL;
-			setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
+			int64_t moveX=divX/128;
+			scaleN[0]-=moveX;
+			scaleN[1]-=moveX;
+			//setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
 			redraw|=redrawLR;
 		}
 		if(keyPressed(KEY_RIGHT)){
-			scaleN[0]+=absll(scaleN[1]-scaleN[0])/64LL;
-			scaleN[1]+=absll(scaleN[1]-scaleN[0])/64LL;
-			setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
+			int64_t moveX=divX/128;
+			scaleN[0]+=moveX;
+			scaleN[1]+=moveX;
+			//setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
 			redraw|=redrawLR;
 		}
 		if(redraw&redrawFull){

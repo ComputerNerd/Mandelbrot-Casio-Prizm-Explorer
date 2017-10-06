@@ -1,7 +1,7 @@
 #ifdef PC
 #include <SDL/SDL.h>
-#define SCREEN_WIDTH 1024
-#define SCREEN_HEIGHT 576
+#define SCREEN_WIDTH 1536
+#define SCREEN_HEIGHT 864
 #endif
 #ifdef CASIO_PRIZM
 #define SCREEN_WIDTH 384
