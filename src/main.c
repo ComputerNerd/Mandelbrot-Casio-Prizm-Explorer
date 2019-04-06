@@ -42,7 +42,7 @@ int keyPressed(int basic_keycode){
 		return keystate[basic_keycode];
 	#endif
 	#ifdef CASIO_PRIZM
-		const unsigned short* keyboard_register = (unsigned short*)0xA44B0000;
+		const volatile unsigned short* keyboard_register = (unsigned short*)0xA44B0000;
 		int row, col, word, bit;
 		row = basic_keycode%10;
 		col = basic_keycode/10-1;
