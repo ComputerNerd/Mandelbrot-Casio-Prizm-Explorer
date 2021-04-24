@@ -13,17 +13,14 @@
 
 	You should have received a copy of the GNU General Public License
 	along with Mandelbrot Explorer.  If not, see <http://www.gnu.org/licenses/>.
-	Copyright 2014 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
+	Copyright 2014-2021 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
 */
 #ifdef PC
 #include <SDL/SDL.h>
 #endif
 #ifdef PC
 #define FlipScreen() SDL_Flip(screen);
-#define VRAM_ADDRESS screen->pixels
 #endif
 #ifdef CASIO_PRIZM
-#define VRAM_ADDRESS 0xA8000000
-void DmaWaitNext(void);
-void FlipScreen(void);
+	#include <fxcg/display.h>
 #endif

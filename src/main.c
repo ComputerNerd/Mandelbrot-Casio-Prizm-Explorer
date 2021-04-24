@@ -13,7 +13,7 @@
 
 	You should have received a copy of the GNU General Public License
 	along with Mandelbrot Explorer.  If not, see <http://www.gnu.org/licenses/>.
-	Copyright 2017 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
+	Copyright 2017-2021 ProgrammerNerd/ComputerNerd (or whatever screename you know me as)
 */
 #include <stdint.h>
 #include <string.h>
@@ -21,22 +21,7 @@
 #include "screen.h"
 #include "input.h"
 #include "config.h"
-void waitKey(void){
-	#ifdef PC
-		SDL_Event keyevent;
-		do{
-			SDL_WaitEvent(&keyevent);
-		}while(keyevent.type != SDL_KEYDOWN);
-		do{
-			SDL_WaitEvent(&keyevent);
-		}while(keyevent.type != SDL_KEYUP);
-	#endif
-	#ifdef CASIO_PRIZM
-		int key;
-		GetKey(&key);
-	#endif
-}
-int keyPressed(int basic_keycode){
+static int keyPressed(int basic_keycode){
 	#ifdef PC
 		uint8_t*keystate=SDL_GetKeyState(NULL);
 		return keystate[basic_keycode];
@@ -51,7 +36,7 @@ int keyPressed(int basic_keycode){
 		return (0 != (keyboard_register[word] & 1<<bit));
 	#endif
 }
-int checkExit(void){
+static int checkExit(void){
 	#ifdef CASIO_PRIZM
 		return keyPressed(KEY_PRGM_MENU);
 	#endif
@@ -64,13 +49,13 @@ int checkExit(void){
 		return 0;
 	#endif
 }
+static unsigned short* VRAM_ADDRESS;
 #ifdef PC
 SDL_Surface *screen;
 #endif
 #ifdef CASIO_PRIZM
 #define LCD_GRAM 0x202
 #define LCD_BASE	0xB4000000
-unsigned short* VRAM_ADDR;
 #define SYNCO() __asm__ volatile("SYNCO\n\t":::"memory");
 // Module Stop Register 0
 #define MSTPCR0	(volatile unsigned *)0xA4150030
@@ -80,7 +65,7 @@ unsigned short* VRAM_ADDR;
 #define DMA0_DAR_0  (volatile unsigned *)0xFE008024
 #define DMA0_TCR_0	(volatile unsigned *)0xFE008028
 #define DMA0_CHCR_0	(volatile unsigned *)0xFE00802C
-void DmaWaitNext(void){
+static void DmaWaitNext(void){
 	while(1){
 		if((*DMA0_DMAOR)&4)//Address error has occurred stop looping
 			break;
@@ -91,7 +76,7 @@ void DmaWaitNext(void){
 	*DMA0_CHCR_0&=~1;
 	*DMA0_DMAOR=0;
 }
-void FlipScreen(void){
+static void FlipScreen(void){
 	Bdisp_WriteDDRegister3_bit7(1);
 	Bdisp_DefineDMARange(6,389,0,215);
 	Bdisp_DDRegisterSelect(LCD_GRAM);
@@ -99,7 +84,7 @@ void FlipScreen(void){
 	*MSTPCR0&=~(1<<21);//Clear bit 21
 	*DMA0_CHCR_0&=~1;//Disable DMA on channel 0
 	*DMA0_DMAOR=0;//Disable all DMA
-	*DMA0_SAR_0=((unsigned)VRAM_ADDR)&0x1FFFFFFF;//Source address is VRAM
+	*DMA0_SAR_0=((unsigned)VRAM_ADDRESS)&0x1FFFFFFF;//Source address is VRAM
 	*DMA0_DAR_0=LCD_BASE&0x1FFFFFFF;//Destination is LCD
 	*DMA0_TCR_0=(216*384)/16;//Transfer count bytes/32
 	*DMA0_CHCR_0=0x00101400;
@@ -108,9 +93,9 @@ void FlipScreen(void){
 	*DMA0_CHCR_0|=1;//Enable channel0 DMA
 }
 #endif
-void clearScreen(void){
+static void clearScreen(void){
 	#ifdef CASIO_PRIZM
-		memset((void *)VRAM_ADDR,0,384*216*2);
+		memset((void *)VRAM_ADDRESS,0,384*216*2);
 	#endif
 	#ifdef PC
 		if(SDL_MUSTLOCK(screen)) SDL_LockSurface(screen);
@@ -450,7 +435,7 @@ int main(void){
 	int64_t scaleN[4] = {(int64_t)-2<<wBits,(int64_t)1<<wBits,(int64_t)-1<<wBits,(int64_t)1<<wBits};
 	int64_t scaleO[4] = {(int64_t)-2<<wBits,(int64_t)1<<wBits,(int64_t)-1<<wBits,(int64_t)1<<wBits};
 	#ifdef CASIO_PRIZM
-		VRAM_ADDR = (unsigned short*)GetVRAMAddress();
+		VRAM_ADDRESS = (unsigned short*)GetVRAMAddress();
 		Bdisp_EnableColor(1);
 		clearScreen();
 		Bdisp_PutDisp_DD();
@@ -461,6 +446,7 @@ int main(void){
 			return;
 		}
 		screen=SDL_SetVideoMode(SCREEN_WIDTH,SCREEN_HEIGHT,16,SDL_SWSURFACE);
+		VRAM_ADDRESS = (unsigned short*)screen->pixels;
 	#endif
 	setScale(scaleN,SCREEN_WIDTH,SCREEN_HEIGHT);
 	divXX=divX;
